@@ -1,8 +1,19 @@
+name: Build & Push changed services (GHCR)
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      user:  ${{ steps.filter.outputs.user }}
+      user: ${{ steps.filter.outputs.user }}
       order: ${{ steps.filter.outputs.order }}
     steps:
       - uses: actions/checkout@v4
@@ -29,22 +40,33 @@ jobs:
             changed: ${{ needs.detect-changes.outputs.order }}
             path: services/order-service
             image_suffix: order-service
-    if: matrix.changed == 'true'
     steps:
+      - name: Skip unchanged service
+        if: ${{ matrix.changed != 'true' }}
+        run: echo "Service ${{ matrix.name }} unchanged. Skipping."
+
       - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        if: ${{ matrix.changed == 'true' }}
+        with:
+          fetch-depth: 0
       - uses: docker/setup-buildx-action@v3
+        if: ${{ matrix.changed == 'true' }}
       - uses: docker/login-action@v3
+        if: ${{ matrix.changed == 'true' }}
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set IMAGE and SHA
+        if: ${{ matrix.changed == 'true' }}
         run: |
           OWNER="${{ github.repository_owner }}"
           echo "IMAGE=ghcr.io/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')/${{ matrix.image_suffix }}" >> $GITHUB_ENV
           echo "SHA=${{ github.sha }}" >> $GITHUB_ENV
+
       - name: Build & push
+        if: ${{ matrix.changed == 'true' }}
         run: |
           docker build -t $IMAGE:latest -t $IMAGE:${SHA::7} ${{ matrix.path }}
           docker push $IMAGE:latest
@@ -62,35 +84,45 @@ jobs:
             changed: ${{ needs.detect-changes.outputs.user }}
           - values_file: gitops/image-tags/dev/order-service-values.yaml
             changed: ${{ needs.detect-changes.outputs.order }}
-    if: |
-      matrix.changed == 'true' &&
-      github.event_name == 'push' &&
-      startsWith(github.ref, 'refs/heads/master')
     steps:
+      - name: Skip unchanged service
+        if: ${{ matrix.changed != 'true' }}
+        run: echo "Service values ${{ matrix.values_file }} unchanged. Skipping."
+
       - uses: actions/checkout@v4
+        if: ${{ matrix.changed == 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/master') }}
         with:
           fetch-depth: 0
           persist-credentials: false
+
       - name: Configure git author
+        if: ${{ matrix.changed == 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/master') }}
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Ensure remote uses GITHUB_TOKEN
-        env: { GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
+        if: ${{ matrix.changed == 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/master') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           REPO="${{ github.repository }}"
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git"
-          git fetch origin
+          git fetch origin master
           git checkout master
           git pull --rebase origin master
+
       - name: Update tag in dev values
-        env: { SHORT_SHA: ${{ github.sha }} }
+        if: ${{ matrix.changed == 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/master') }}
+        env:
+          SHORT_SHA: ${{ github.sha }}
+          VALUES_FILE: ${{ matrix.values_file }}
         run: |
-          sed -i "s/tag:.*/tag: \"${SHORT_SHA::7}\"/" "${{ matrix.values_file }}"
-          if ! git diff --quiet; then
-            git add "${{ matrix.values_file }}"
-            git commit -m "Update $(basename "${{ matrix.values_file }}") to ${SHORT_SHA::7} (dev) [skip ci]"
-            git push origin master
+          sed -i "s/tag:.*/tag: \"${SHORT_SHA::7}\"/" "${VALUES_FILE}"
+          if ! git diff --quiet -- "${VALUES_FILE}"; then
+            git add "${VALUES_FILE}"
+            git commit -m "Update $(basename "${VALUES_FILE}") to ${SHORT_SHA::7} (dev) [skip ci]"
+            git push origin HEAD:master
           else
             echo "No changes to commit."
           fi
