@@ -1,24 +1,12 @@
-name: Build & Push changed services (GHCR)
-
-on:
-  push:
-    branches: [ master ]
-  pull_request:
-
-permissions:
-  contents: read
-  packages: write
-
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      user_changed: ${{ steps.filter.outputs.user }}
-      order_changed: ${{ steps.filter.outputs.order }}
+      user:  ${{ steps.filter.outputs.user }}
+      order: ${{ steps.filter.outputs.order }}
     steps:
       - uses: actions/checkout@v4
-      - name: Detect changes
-        id: filter
+      - id: filter
         uses: dorny/paths-filter@v3
         with:
           filters: |
@@ -27,98 +15,81 @@ jobs:
             order:
               - 'services/order-service/**'
 
-  build-push-user:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.user_changed == 'true'
+  build-push:
     runs-on: ubuntu-latest
+    needs: detect-changes
+    strategy:
+      matrix:
+        include:
+          - name: user-service
+            changed: ${{ needs.detect-changes.outputs.user }}
+            path: services/user-service
+            image_suffix: user-service
+          - name: order-service
+            changed: ${{ needs.detect-changes.outputs.order }}
+            path: services/order-service
+            image_suffix: order-service
+    if: matrix.changed == 'true'
     steps:
       - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
       - uses: docker/setup-buildx-action@v3
-      - name: Login to GHCR
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Set IMAGE and SHA for user-service (lowercase owner)
+      - name: Set IMAGE and SHA
         run: |
           OWNER="${{ github.repository_owner }}"
-          OWNER_LC=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
-          echo "IMAGE=ghcr.io/$OWNER_LC/user-service" >> $GITHUB_ENV
+          echo "IMAGE=ghcr.io/$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')/${{ matrix.image_suffix }}" >> $GITHUB_ENV
           echo "SHA=${{ github.sha }}" >> $GITHUB_ENV
-
-      - name: Build & push user-service
+      - name: Build & push
         run: |
-          docker build -t $IMAGE:latest -t $IMAGE:${SHA::7} services/user-service
+          docker build -t $IMAGE:latest -t $IMAGE:${SHA::7} ${{ matrix.path }}
           docker push $IMAGE:latest
           docker push $IMAGE:${SHA::7}
 
-  build-push-order:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.order_changed == 'true'
+  update-gitops-dev-tag:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Set IMAGE and SHA for order-service (lowercase owner)
-        run: |
-          OWNER="${{ github.repository_owner }}"
-          OWNER_LC=$(echo "$OWNER" | tr '[:upper:]' '[:lower:]')
-          echo "IMAGE=ghcr.io/$OWNER_LC/order-service" >> $GITHUB_ENV
-          echo "SHA=${{ github.sha }}" >> $GITHUB_ENV
-
-      - name: Build & push order-service
-        run: |
-          docker build -t $IMAGE:latest -t $IMAGE:${SHA::7} services/order-service
-          docker push $IMAGE:latest
-          docker push $IMAGE:${SHA::7}
-          
-  update-gitops-user-dev-tag:
-    name: Update GitOps tag for user-service (dev)
-    needs: [detect-changes, build-push-user]
-    if: |
-      needs.detect-changes.outputs.user_changed == 'true' &&
-      github.event_name == 'push' &&
-      startsWith(github.ref, 'refs/heads/master')
-    runs-on: ubuntu-latest
+    needs: [detect-changes, build-push]
     permissions:
       contents: write
+    strategy:
+      matrix:
+        include:
+          - values_file: gitops/image-tags/dev/user-service-values.yaml
+            changed: ${{ needs.detect-changes.outputs.user }}
+          - values_file: gitops/image-tags/dev/order-service-values.yaml
+            changed: ${{ needs.detect-changes.outputs.order }}
+    if: |
+      matrix.changed == 'true' &&
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/heads/master')
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false   # we'll set the remote explicitly
-
+          persist-credentials: false
       - name: Configure git author
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
       - name: Ensure remote uses GITHUB_TOKEN
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        env: { GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} }
         run: |
-          REPO="${{ github.repository }}"  # e.g. BaruchiHalamish20/devopsai-b2c-monorepo
+          REPO="${{ github.repository }}"
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git"
           git fetch origin
           git checkout master
           git pull --rebase origin master
-
-      - name: Update tag in dev values (user-service)
-        env:
-          SHORT_SHA: ${{ github.sha }}
+      - name: Update tag in dev values
+        env: { SHORT_SHA: ${{ github.sha }} }
         run: |
-          sed -i "s/tag:.*/tag: \"${SHORT_SHA::7}\"/" gitops/image-tags/dev/user-service-values.yaml
-
+          sed -i "s/tag:.*/tag: \"${SHORT_SHA::7}\"/" "${{ matrix.values_file }}"
           if ! git diff --quiet; then
-            git add gitops/image-tags/dev/user-service-values.yaml
-            git commit -m "Update user-service image tag to ${SHORT_SHA::7} (dev) [skip ci]"
+            git add "${{ matrix.values_file }}"
+            git commit -m "Update $(basename "${{ matrix.values_file }}") to ${SHORT_SHA::7} (dev) [skip ci]"
             git push origin master
           else
             echo "No changes to commit."
