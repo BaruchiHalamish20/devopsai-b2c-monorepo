@@ -5,6 +5,11 @@ on:
     branches: [ master ]
   pull_request:
 
+# Prevent concurrent runs on the same branch from racing pushes/commits
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   packages: write
@@ -52,8 +57,11 @@ jobs:
         if: ${{ matrix.changed == 'true' }}
         with:
           fetch-depth: 0
+          persist-credentials: true
+
       - uses: docker/setup-buildx-action@v3
         if: ${{ matrix.changed == 'true' }}
+
       - uses: docker/login-action@v3
         if: ${{ matrix.changed == 'true' }}
         with:
@@ -89,44 +97,64 @@ jobs:
             changed: ${{ (needs.detect-changes.outputs.order == 'true' || needs.detect-changes.outputs.workflow == 'true') && 'true' || 'false' }}
     steps:
       - name: Skip unchanged service
-        if: ${{ matrix.changed != 'true' }}
-        run: echo "Service values ${{ matrix.values_file }} unchanged. Skipping."
+        if: ${{ matrix.changed != 'true' || github.event_name != 'push' || !startsWith(github.ref, 'refs/heads/master') }}
+        run: echo "Values file ${{ matrix.values_file }} unchanged or not a direct push to master. Skipping."
 
       - uses: actions/checkout@v4
         if: ${{ matrix.changed == 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/master') }}
         with:
           fetch-depth: 0
-          persist-credentials: false
+          persist-credentials: true   # we will use GITHUB_TOKEN via origin URL
 
-      - name: Configure git author
-        if: ${{ matrix.changed == 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/master') }}
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Ensure remote uses GITHUB_TOKEN
+      - name: Configure git & auth
         if: ${{ matrix.changed == 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/master') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -e
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config pull.rebase true
           REPO="${{ github.repository }}"
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${REPO}.git"
-          git fetch origin master
-          git checkout master
-          git pull --rebase origin master
 
-      - name: Update tag in dev values
+      - name: Update tag in dev values (rebase + safe force push with retries)
         if: ${{ matrix.changed == 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/heads/master') }}
         env:
           SHORT_SHA: ${{ github.sha }}
           VALUES_FILE: ${{ matrix.values_file }}
         run: |
+          set -e
+          # Always start from latest master
+          git checkout master
+          git fetch origin master
+          git reset --hard origin/master
+
+          # Apply the change
           sed -i "s/tag:.*/tag: \"${SHORT_SHA::7}\"/" "${VALUES_FILE}"
-          if ! git diff --quiet -- "${VALUES_FILE}"; then
-            git add "${VALUES_FILE}"
-            git commit -m "Update $(basename "${VALUES_FILE}") to ${SHORT_SHA::7} (dev) [skip ci]"
-            git pull --rebase origin master
-            git push origin HEAD:master
-          else
-            echo "No changes to commit."
+
+          if git diff --quiet -- "${VALUES_FILE}"; then
+            echo "No changes to commit for ${VALUES_FILE}."
+            exit 0
+          fi
+
+          git add "${VALUES_FILE}"
+          git commit -m "Update $(basename "${VALUES_FILE}") to ${SHORT_SHA::7} (dev) [skip ci]"
+
+          # Retry a few times to avoid races
+          n=0
+          until [ $n -ge 5 ]
+          do
+            if git pull --rebase origin master && git push --force-with-lease origin HEAD:master; then
+              echo "Pushed successfully."
+              break
+            fi
+            n=$((n+1))
+            echo "Push failed (attempt $n). Retrying in 3s…"
+            sleep 3
+          done
+
+          if [ $n -ge 5 ]; then
+            echo "Giving up after 5 attempts."
+            exit 1
           fi
