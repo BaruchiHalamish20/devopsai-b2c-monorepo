@@ -4,3 +4,8 @@ image:
 env:
   - name: SECRET_KEY
     value: "dev-secret-order"
+
+service:
+  type: NodePort
+  port: 80
+  nodePort: 30012
