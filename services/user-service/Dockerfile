@@ -6,4 +6,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 ENV PYTHONUNBUFFERED=1
 EXPOSE 5000
+EXPOSE 8000
 CMD ["python", "app.py"]

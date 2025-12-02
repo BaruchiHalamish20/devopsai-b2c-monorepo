@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from itsdangerous import URLSafeSerializer
 from decimal import Decimal, ROUND_HALF_UP
 import os
+from prometheus_client import generate_latest, Counter, Histogram, start_http_server
 
 
 app = Flask(__name__)
@@ -9,6 +10,11 @@ SECRET = os.getenv("SECRET_KEY","dev-secret")
 signer = URLSafeSerializer(SECRET, salt="user-auth")
 ENVIRONMENT = os.getenv("APP_ENV", "unknown")  # set via Helm values per env
 
+# Prometheus Metrics
+REQUEST_COUNT = Counter('http_requests_total', 'Total HTTP Requests', ['method', 'endpoint', 'status_code'])
+REQUEST_LATENCY = Histogram('http_request_duration_seconds', 'HTTP Request Latency', ['method', 'endpoint'])
+# Custom metric example
+ORDER_CREATIONS = Counter('order_creations_total', 'Total number of orders created')
 
 # toy catalog and orders (demo)
 PRODUCTS = {
@@ -31,18 +37,22 @@ def money(x):
 
 @app.get("/healthz")
 def healthz():
+    REQUEST_COUNT.labels(method="GET", endpoint="/healthz", status_code="200").inc()
     return jsonify({"status": "ok", "service": "order-service", "env": ENVIRONMENT})
 
 @app.get("/env")
 def env():
+    REQUEST_COUNT.labels(method="GET", endpoint="/env", status_code="200").inc()
     return jsonify({"env": ENVIRONMENT})
 
 @app.get("/products")
 def products():
+    REQUEST_COUNT.labels(method="GET", endpoint="/products", status_code="200").inc()
     return jsonify(list(PRODUCTS.values()))
 
 @app.post("/create_order")
 def create_order():
+    REQUEST_COUNT.labels(method="POST", endpoint="/create_order", status_code="201").inc()
     global ORDER_SEQ
     auth = request.headers.get("authorization","")
     if not auth.lower().startswith("bearer "):
@@ -79,10 +89,12 @@ def create_order():
     ORDER_SEQ += 1
     order = {"order_id": oid, "user": username, "items": line_items, "total": total}
     ORDERS.append(order)
+    ORDER_CREATIONS.inc() # Increment custom metric on successful order creation
     return jsonify(order), 201
 
 @app.get("/orders/<order_id>")
 def get_order(order_id):
+    REQUEST_COUNT.labels(method="GET", endpoint="/orders/<order_id>", status_code="200").inc()
     auth = request.headers.get("authorization","")
     if not auth.lower().startswith("bearer "):
         return jsonify({"error":"missing bearer token"}), 401
@@ -98,6 +110,7 @@ def get_order(order_id):
 
 @app.get("/orders")
 def list_orders():
+    REQUEST_COUNT.labels(method="GET", endpoint="/orders", status_code="200").inc()
     auth = request.headers.get("authorization","")
     if not auth.lower().startswith("bearer "):
         return jsonify({"error":"missing bearer token"}), 401
@@ -111,5 +124,8 @@ def list_orders():
     return jsonify(user_orders)
 
 if __name__ == "__main__":
+    # Start up the Prometheus client
+    start_http_server(8000)
+
     app.run(host="0.0.0.0", port=5000)
 

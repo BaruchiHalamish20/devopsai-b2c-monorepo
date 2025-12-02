@@ -16,3 +16,6 @@ spec:
       {{- if and (eq .Values.service.type "NodePort") (.Values.service.nodePort) }}
       nodePort: {{ .Values.service.nodePort }}
       {{- end }}
+    - name: metrics
+      port: 8000
+      targetPort: 8000

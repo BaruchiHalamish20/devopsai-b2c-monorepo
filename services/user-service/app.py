@@ -1,11 +1,18 @@
 from flask import Flask, request, jsonify, redirect, url_for
 from itsdangerous import URLSafeSerializer
 import hashlib, os
+from prometheus_client import generate_latest, Counter, Histogram, start_http_server
 
 app = Flask(__name__)
 SECRET = os.getenv("SECRET_KEY", "dev-secret")
 signer = URLSafeSerializer(SECRET, salt="user-auth")
 ENVIRONMENT = os.getenv("APP_ENV", "unknown")  # set via Helm values per env
+
+# Prometheus Metrics
+REQUEST_COUNT = Counter('http_requests_total', 'Total HTTP Requests', ['method', 'endpoint', 'status_code'])
+REQUEST_LATENCY = Histogram('http_request_duration_seconds', 'HTTP Request Latency', ['method', 'endpoint'])
+# Custom metric example
+USER_REGISTRATIONS = Counter('user_registrations_total', 'Total number of user registrations')
 
 USERS = {}
 NEXT_ID = 1
@@ -55,6 +62,7 @@ def register():
     USERS[username] = user
     NEXT_ID += 1
     public = {k: v for k, v in user.items() if k != "password_hash"}
+    USER_REGISTRATIONS.inc() # Increment custom metric on successful registration
     return jsonify(public), 201
 
 @app.post("/login")
@@ -107,6 +115,13 @@ def baruchi_login():
 def niv_login():
     return jsonify({"who is the king?": "Niv"})
 
+@app.route('/metrics')
+def metrics():
+    return generate_latest(), 200, {'Content-Type': 'text/plain; version=0.0.4; charset=utf-8'}
+
 if __name__ == "__main__":
+    # Start up the Prometheus client
+    start_http_server(8000)
+
     app.run(host="0.0.0.0", port=5000)
 
