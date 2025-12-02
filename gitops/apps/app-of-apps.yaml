@@ -6,11 +6,14 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/BaruchiHalamish10/devopsai-b2c-monorepo.git
+    repoURL: https://github.com/{{ .Values.githubAccountName }}/devopsai-b2c-monorepo.git
     targetRevision: master
     path: gitops/apps
     directory:
       recurse: true
+    helm:
+      valueFiles:
+        - ../common-values.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
