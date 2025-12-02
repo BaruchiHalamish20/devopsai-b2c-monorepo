@@ -13,6 +13,9 @@ spec:
     metadata:
       labels:
         {{- include "user-service.selectorLabels" . | nindent 8 }}
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
     spec:
       containers:
         - name: {{ include "user-service.name" . }}
@@ -20,6 +23,8 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
           ports:
             - containerPort: 5000
+            - containerPort: 8000
+              name: metrics
           env:
             - name: SECRET_KEY
               valueFrom:

@@ -13,12 +13,17 @@ spec:
     metadata:
       labels:
         {{- include "order-service.selectorLabels" . | nindent 8 }}
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "8000"
     spec:
       containers:
         - name: {{ include "order-service.name" . }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           ports:
             - containerPort: 5000
+            - containerPort: 8000
+              name: metrics
           env:
             {{- range $e := .Values.env | default list }}
             - name: {{ $e.name }}
