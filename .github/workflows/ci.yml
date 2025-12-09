@@ -2,8 +2,15 @@ name: Build & Push changed services (GHCR)
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, feature/fix-test-user-service]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      enable_logic_tests:
+        description: 'Enable logic bug tests (normally disabled)'
+        required: false
+        type: boolean
+        default: false
 
 # Prevent concurrent runs on the same branch from racing pushes/commits
 concurrency:
@@ -127,7 +134,7 @@ jobs:
         if: ${{ matrix.changed == 'true' }}
         run: |
           echo "🧪 Running pytest for ${{ matrix.name }}..."
-          
+
           # Map service names to test files
           TEST_FILE=""
           if [ "${{ matrix.name }}" = "user-service" ]; then
@@ -135,11 +142,11 @@ jobs:
           elif [ "${{ matrix.name }}" = "order-service" ]; then
             TEST_FILE="tests/test_order_service.py"
           fi
-          
+
           if [ -f "$TEST_FILE" ]; then
             # Install service dependencies in the root environment
             cd ${{ matrix.path }} && pip install -r requirements.txt && cd -
-            
+
             # Run tests with coverage
             pytest "$TEST_FILE" -v --cov=${{ matrix.path }} --cov-report=term-missing
             echo "✅ Tests passed!"
@@ -147,6 +154,44 @@ jobs:
             echo "ℹ️  No test file found at $TEST_FILE."
             echo "⚠️  Consider adding tests to improve code quality."
             exit 0
+          fi
+
+      - name: Run logic bug tests (when enabled)
+        if: ${{ matrix.changed == 'true' && (github.event.inputs.enable_logic_tests == 'true' || vars.ENABLE_LOGIC_TESTS == 'true' || contains(github.event.head_commit.message, '[test-logic]')) }}
+        run: |
+          echo "🔬 Running LOGIC BUG TESTS for ${{ matrix.name }}..."
+          echo "⚠️  These tests check for business logic failures."
+          echo ""
+
+          # Check which trigger enabled the tests
+          if [ "${{ github.event.inputs.enable_logic_tests }}" = "true" ]; then
+            echo "✓ Enabled via: Manual workflow dispatch"
+          elif [ "${{ vars.ENABLE_LOGIC_TESTS }}" = "true" ]; then
+            echo "✓ Enabled via: Repository variable ENABLE_LOGIC_TESTS"
+          elif echo "${{ github.event.head_commit.message }}" | grep -q "\[test-logic\]"; then
+            echo "✓ Enabled via: Commit message contains [test-logic]"
+          fi
+          echo ""
+
+          # Map service names to logic test files
+          LOGIC_TESTS=""
+          if [ "${{ matrix.name }}" = "user-service" ]; then
+            LOGIC_TESTS="tests/test_user_auth_logic.py"
+          elif [ "${{ matrix.name }}" = "order-service" ]; then
+            LOGIC_TESTS="tests/test_order_pricing_logic.py tests/test_order_authorization_logic.py"
+          fi
+
+          if [ -n "$LOGIC_TESTS" ]; then
+            # Install service dependencies
+            cd ${{ matrix.path }} && pip install -r requirements.txt && cd -
+
+            # Run logic tests (excluding skipped tests)
+            pytest $LOGIC_TESTS -v --tb=short
+
+            echo ""
+            echo "✅ Logic tests completed!"
+          else
+            echo "ℹ️  No logic tests found for ${{ matrix.name }}"
           fi
 
   build-push:

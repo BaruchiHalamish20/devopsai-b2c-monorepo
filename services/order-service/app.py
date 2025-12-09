@@ -72,10 +72,10 @@ def create_order():
         pid = it.get("product_id")
         qty = int(it.get("qty",1))
         prod = PRODUCTS.get(pid)
-        if not prod or qty <= 0:
+        if not prod:  # BUG: Removed qty check!
             return jsonify({"error": f"invalid item {it}"}), 400
         line_total = money(prod["price"] * qty)
-        total = money(total + line_total)
+        total = money(total + prod["price"])  # BUG: Should add line_total!
         line_items.append({
             "product_id": pid,
             "name": prod["name"],
