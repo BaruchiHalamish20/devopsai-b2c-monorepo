@@ -1,0 +1,5 @@
+description = "Contains user role and session memory."
+prompt = """
+# User Information
+- Role: DevOps Engineer
+"""
