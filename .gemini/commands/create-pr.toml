@@ -1,39 +1,53 @@
-----
-description: Reviews code quality and provides feedback.
-----
-# Code Review
+description = "Generate a comprehensive pull request description."
+prompt = """
+# Generate Pull Request Description
 
-Review the selected code or current file for quality, maintainability, and adherence to project standards.
+Create a comprehensive pull request description based on the current git changes.
 
-## Requirements
+## Analysis Required
 
-### Code Quality
-- Check for proper variable naming
-- Verify proper indentation and formatting
-- Ensure code is readable and maintainable
-- Check for proper error handling
-- Verify proper documentation
+Review the git diff and commit messages to understand:
+- What features were added
+- What bugs were fixed
+- What refactoring was done
+- What dependencies were changed
 
-### Maintainability
-- Check for proper code organization
-- Verify proper code structure
-- Ensure code is maintainable
-- Check for proper code documentation
-- Verify proper code comments
+## PR Description Format
 
-### Adherence to Standards
-- Check for proper code standards
-- Verify proper code formatting
-- Ensure code is adherent to project standards
-- Check for proper code documentation
-- Verify proper code comments
+Generate a PR description with these sections:
+
+### Title
+- Concise, descriptive title (50-70 characters)
+- Start with type: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`
+
+### Description
+
+**What does this PR do?**
+- Brief overview of changes (2-3 sentences)
+
+**Why is this change needed?**
+- Context and motivation
+- Link to related issue: `Fixes #123` or `Closes #456`
+
+**What changed?**
+- Bullet list of main changes
+- Technical details if needed
+
+**How to test**
+- Step-by-step testing instructions
+- Expected behavior
+
+**Screenshots** (if UI changes)
+- Mention if screenshots should be added
+
+**Checklist**
+- [ ] Tests added/updated
+- [ ] Documentation updated
+- [ ] No breaking changes (or documented)
+- [ ] Reviewed my own code
 
 ## Output
 
-Provide:
-1. Code review feedback
-2. Code quality rating
-3. Maintainability rating
-4. Adherence to standards rating
-
-Place feedback in the appropriate directory following project conventions.
+Provide the PR description in markdown format, ready to paste into GitHub/GitLab.
+Use clear, professional language suitable for team review.
+"""
