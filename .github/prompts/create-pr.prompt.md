@@ -1,4 +1,3 @@
-```markdown
 # Generate Pull Request Description
 
 Create a comprehensive pull request description based on the current git changes.
@@ -49,4 +48,3 @@ Generate a PR description with these sections:
 
 Provide the PR description in markdown format, ready to paste into GitHub/GitLab.
 Use clear, professional language suitable for team review.
-```

@@ -1,4 +1,3 @@
-```markdown
 # Generate Unit Tests
 
 Create comprehensive unit tests for the selected code or current file.
@@ -38,4 +37,3 @@ Provide:
 4. Brief explanation of what each test validates
 
 Place tests in the appropriate test directory following project conventions.
-```
