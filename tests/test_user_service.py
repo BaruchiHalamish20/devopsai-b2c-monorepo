@@ -1,6 +1,15 @@
 import importlib.util, pathlib
 
+from prometheus_client import REGISTRY
+
 def load_app():
+    # Clear registry to avoid duplicate metrics error on reload
+    for collector in list(REGISTRY._collector_to_names.keys()):
+        try:
+            REGISTRY.unregister(collector)
+        except KeyError:
+            pass
+
     p = pathlib.Path("services/user-service/app.py")
     spec = importlib.util.spec_from_file_location("user_app", p)
     mod = importlib.util.module_from_spec(spec)
