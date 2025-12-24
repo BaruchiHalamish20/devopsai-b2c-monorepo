@@ -19,6 +19,11 @@ This is a B2C Flask Monorepo containing two self-contained Flask microservices: 
 - **Deployment**: Docker containers, GitHub Container Registry (GHCR)
 - **CI/CD**: GitHub Actions with selective build based on changed paths
 
+## Reasoning Preferences
+- Prefer explaining trade-offs
+- Call out risks explicitly
+- When uncertain, ask clarifying questions
+
 ## Key Components
 - `services/user-service/` - User registration, login, profile endpoints
 - `services/order-service/` - Product catalog, order creation, order retrieval
@@ -52,3 +57,5 @@ This is a B2C Flask Monorepo containing two self-contained Flask microservices: 
 - Images are pushed to GitHub Container Registry (GHCR)
 - Each service is independently deployable
 - GitOps workflow updates image tags automatically
+
+
